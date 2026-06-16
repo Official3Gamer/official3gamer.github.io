@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>The Audio Wall</title>
+    <style>
+        body { font-family: sans-serif; margin: 30px; }
+        .audio-container { margin-bottom: 20px; }
+        .audio-title { font-weight: bold; margin-bottom: 5px; }
+        audio { display: block; width: 320px; }
+    </style>
+</head>
+<body>
+
+    <div id="playlist"></div>
+
+    <script>
+        // 1. Put the path to your website's audio folder here
+        const folderPath = 'assets/audio/websdr/'; 
+
+        const playlist = document.getElementById('playlist');
+
+        // 2. Ask the server to look inside the folder
+        fetch(folderPath)
+            .then(response => response.text())
+            .then(html => {
+                // 3. Parse the folder's HTML index page provided by the server
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(html, 'text/html');
+                const links = doc.querySelectorAll('a');
+
+                // 4. Loop through all files found in that folder
+                links.forEach(link => {
+                    const filename = link.getAttribute('href');
+                    
+                    // Filter for audio extensions
+                    if (filename.endsWith('.mp3') || filename.endsWith('.wav') || filename.endsWith('.ogg')) {
+                        
+                        // Create layout container
+                        const container = document.createElement('div');
+                        container.className = 'audio-container';
+
+                        // Create title (decodes URL-encoded names like %20 back to spaces)
+                        const title = document.createElement('div');
+                        title.className = 'audio-title';
+                        title.textContent = decodeURIComponent(filename);
+
+                        // Create player
+                        const audio = document.createElement('audio');
+                        audio.controls = true;
+                        audio.src = folderPath + filename;
+
+                        // Drop them into the page
+                        container.appendChild(title);
+                        container.appendChild(audio);
+                        playlist.appendChild(container);
+                    }
+                });
+            })
+            .catch(err => console.error('Could not read folder', err));
+    </script>
+
+</body>
+</html>
