@@ -1,0 +1,34 @@
+|**Url:** [http://brianb.freeshell.org/](http://brianb.freeshell.org/)|||
+|:-|-:|-:|
+|**Extension (Top 5)**|**Files**|**Size**|
+|.mp3|3|11.06 MiB|
+|.jpg|9|552.87 kiB|
+|.pdf|1|207.21 kiB|
+|.pps|1|183 kiB|
+|.gif|2|150.55 kiB|
+|**Dirs:** 2,374 **Ext:** 7|**Total:** 508|**Total:** 12.14 MiB|
+|**Date (UTC):** 2026-07-05 18:45:08|**Time:** 00:00:33||
+
+^(Created by [KoalaBear84's OpenDirectory Indexer v3.5.0.6](https://github.com/KoalaBear84/OpenDirectoryDownloader/))
+
+
+http://brianb.freeshell.org/a/59-2.jpg
+http://brianb.freeshell.org/a/122%20Richard%20Pryor.mp3
+http://brianb.freeshell.org/a/8851172_89ded6b178_o.jpg
+http://brianb.freeshell.org/a/ad_copy.jpg
+http://brianb.freeshell.org/a/brian.mp3
+http://brianb.freeshell.org/a/calvinsad.jpg
+http://brianb.freeshell.org/a/Chineseproverb.pps
+http://brianb.freeshell.org/a/downtown.jpg
+http://brianb.freeshell.org/a/kddd0.gif
+http://brianb.freeshell.org/a/kddd.jpg
+http://brianb.freeshell.org/a/kddd.pdf
+http://brianb.freeshell.org/a/TMW02-23-05.jpg
+http://brianb.freeshell.org/a/war.332.gif
+http://brianb.freeshell.org/a/west-gray.jpg
+http://brianb.freeshell.org/a/willie%20mcgee.JPG
+http://brianb.freeshell.org/audio/Revolverlution.mp3
+http://brianb.freeshell.org/images/tft/?album=albums%2Falabama.%2F&page=1
+http://brianb.freeshell.org/images/tft/?album=albums%2Fnew.jersey%2F&page=1
+http://brianb.freeshell.org/weblog/archives/000006.html
+http://brianb.freeshell.org/weblog/archives/000007.html
