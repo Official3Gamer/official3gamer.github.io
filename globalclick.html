@@ -14,46 +14,98 @@
     <button id="click-btn">Click Me!</button>
 
     <script>
-
         const WORKSPACE = "NoNamo-Global-Counter";
         const COUNTER_NAME = "global-button-clicks";
 
         const countElement = document.getElementById('click-count');
         const clickButton = document.getElementById('click-btn');
 
-        // 1. Get the current count when the page loads
+        let currentCount = 0;
+        let pendingClicks = 0;
+        let isSyncing = false;
+
+        // 1. Fetch the official global count from the server
         async function getCount() {
+            // Don't overwrite if the user is actively clicking or syncing right now
+            if (isSyncing || pendingClicks > 0) return; 
+            
             try {
                 const response = await fetch(`https://abacus.jasoncameron.dev/get/${WORKSPACE}/${COUNTER_NAME}`);
                 const data = await response.json();
-                countElement.innerText = data.value;
+                currentCount = data.value;
+                countElement.innerText = currentCount;
             } catch (error) {
                 console.error("Error loading count:", error);
-                countElement.innerText = "Error";
+                if (countElement.innerText === "Loading...") {
+                    countElement.innerText = "Error";
+                }
             }
         }
 
-        // 2. Increment the count when the button is clicked
-        async function incrementCount() {
-            // Disable button briefly to prevent glitchy double-clicks
-            clickButton.disabled = true; 
+        // 2. Handle local clicks instantly in the UI
+        function handleLocalClick() {
+            // Prevent clicking before the initial count loads
+            if (countElement.innerText === "Loading..." || countElement.innerText === "Error") return;
+
+            pendingClicks++;
+            currentCount++;
+            countElement.innerText = currentCount;
+        }
+
+        // 3. Every 5 seconds, upload the chunk of accumulated clicks
+        async function flushClicksToServer() {
+            if (pendingClicks === 0 || isSyncing) return;
             
+            isSyncing = true;
+            
+            // Take a snapshot of clicks to send, then reset the tracker for new clicks
+            let clicksToSend = pendingClicks;
+            pendingClicks = 0; 
+            
+            // Safety cap: max 15 clicks processed per 5 seconds to stop extreme autoclickers from breaking the rate limit
+            if (clicksToSend > 15) {
+                clicksToSend = 15; 
+            }
+
             try {
-                const response = await fetch(`https://abacus.jasoncameron.dev/hit/${WORKSPACE}/${COUNTER_NAME}`);
-                const data = await response.json();
-                countElement.innerText = data.value;
+                let serverValue = currentCount;
+                
+                // Send the hits sequentially rather than all at once to avoid hitting API limits
+                for (let i = 0; i < clicksToSend; i++) {
+                    const response = await fetch(`https://abacus.jasoncameron.dev/hit/${WORKSPACE}/${COUNTER_NAME}`);
+                    const data = await response.json();
+                    serverValue = data.value;
+                    
+                    // 100ms tiny breather between requests to satisfy the server
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                }
+                
+                // Update total count with the server's final return value if user hasn't clicked more since
+                if (pendingClicks === 0) {
+                    currentCount = serverValue;
+                    countElement.innerText = currentCount;
+                }
             } catch (error) {
-                console.error("Error updating count:", error);
+                console.error("Error syncing clicks:", error);
             } finally {
-                clickButton.disabled = false;
+                isSyncing = false;
             }
         }
 
-        // Run getCount right when the page opens
-        window.addEventListener('DOMContentLoaded', getCount);
+        // Setup background tasks on page load
+        window.addEventListener('DOMContentLoaded', () => {
+            // Get initial count right away
+            getCount();
+            
+            // Check and upload chunks of clicks every 5 seconds
+            setInterval(flushClicksToServer, 5000);
+            
+            // Pull down updates from other global users every 10 seconds (only when idle)
+            setInterval(getCount, 10000);
+        });
 
-        // Run incrementCount when clicked
-        clickButton.addEventListener('click', incrementCount);
+        // Listen for button presses
+        clickButton.addEventListener('click', handleLocalClick);
     </script>
 
 </body>
