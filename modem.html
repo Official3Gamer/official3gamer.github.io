@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FSK & RTTY Audio Tool</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 20px auto;
+            padding: 0 20px;
+            background-color: #f4f4f9;
+            color: #333;
+        }
+        .card {
+            background: #fff;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-radius: 6px;
+            border: 1px solid #ccc;
+        }
+        h2 { margin-top: 0; }
+        label { display: block; margin: 10px 0 5px; font-weight: bold; }
+        textarea, input[type="file"], select, input[type="number"] {
+            width: 100%;
+            padding: 8px;
+            box-sizing: border-box;
+            margin-bottom: 10px;
+        }
+        textarea { height: 80px; }
+        button {
+            background: #0066cc;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            cursor: pointer;
+            font-size: 14px;
+            border-radius: 4px;
+        }
+        button:hover { background: #004c99; }
+        .output-box {
+            background: #eee;
+            padding: 10px;
+            font-family: monospace;
+            min-height: 40px;
+            word-break: break-all;
+        }
+        audio { width: 100%; margin-top: 10px; }
+    </style>
+</head>
+<body>
+
+    <h1>FSK & RTTY Audio Encoder / Decoder</h1>
+
+    <div class="card">
+        <h2>1. Text to Tone Encoder</h2>
+        
+        <label for="mode">Mode:</label>
+        <select id="mode">
+            <option value="fsk">Standard FSK (1200 / 2200 Hz - 300 Baud)</option>
+            <option value="rtty">RTTY (2125 / 2295 Hz - 45.45 Baud)</option>
+        </select>
+
+        <label for="textInput">Text to Encode:</label>
+        <textarea id="textInput" placeholder="Enter text here..."></textarea>
+
+        <button onclick="generateAudioFromText()">Generate Audio</button>
+        
+        <audio id="audioPlayer" controls></audio>
+        <br><br>
+        <a id="downloadLink" style="display:none;" download="encoded_tone.wav">
+            <button>Download WAV Audio</button>
+        </a>
+    </div>
+
+    <div class="card">
+        <h2>2. File to FSK Audio</h2>
+        <label for="fileInput">Select File to Convert to FSK Tones:</label>
+        <input type="file" id="fileInput">
+        <button onclick="generateAudioFromFile()">Convert File to FSK Audio</button>
+    </div>
+
+    <div class="card">
+        <h2>3. Audio Tone Decoder</h2>
+        <label for="audioFileInput">Upload Audio File (.wav):</label>
+        <input type="file" id="audioFileInput" accept="audio/*">
+        
+        <button onclick="decodeAudioFile()">Decode Audio</button>
+
+        <label>Decoded Output:</label>
+        <div id="decodedOutput" class="output-box">No output yet...</div>
+    </div>
+
+    <script>
+        // Preset Parameters
+        const SETTINGS = {
+            fsk: { markFreq: 1200, spaceFreq: 2200, baud: 300 },
+            rtty: { markFreq: 2125, spaceFreq: 2295, baud: 45.45 }
+        };
+
+        const SAMPLE_RATE = 44100;
+
+        // --- ENCODING LOGIC ---
+
+        function textToBits(text) {
+            let bits = [];
+            for (let i = 0; i < text.length; i++) {
+                let code = text.charCodeAt(i);
+                // 1 Start bit (0), 8 Data bits (LSB first), 1 Stop bit (1)
+                bits.push(0);
+                for (let b = 0; b < 8; b++) {
+                    bits.push((code >> b) & 1);
+                }
+                bits.push(1);
+            }
+            return bits;
+        }
+
+        function createAudioBufferFromBits(bits, markFreq, spaceFreq, baudRate) {
+            const bitDuration = 1 / baudRate;
+            const samplesPerBit = Math.floor(SAMPLE_RATE * bitDuration);
+            const totalSamples = bits.length * samplesPerBit;
+
+            const audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: SAMPLE_RATE });
+            const buffer = audioCtx.createBuffer(1, totalSamples, SAMPLE_RATE);
+            const channelData = buffer.getChannelData(0);
+
+            let phase = 0;
+            let sampleIndex = 0;
+
+            for (let b = 0; b < bits.length; b++) {
+                const freq = bits[b] === 1 ? markFreq : spaceFreq;
+                const phaseIncrement = (2 * Math.PI * freq) / SAMPLE_RATE;
+
+                for (let i = 0; i < samplesPerBit; i++) {
+                    channelData[sampleIndex++] = Math.sin(phase);
+                    phase += phaseIncrement;
+                }
+            }
+            return buffer;
+        }
+
+        function generateAudioFromText() {
+            const text = document.getElementById('textInput').value;
+            if (!text) return alert("Please enter text.");
+
+            const mode = document.getElementById('mode').value;
+            const config = SETTINGS[mode];
+            const bits = textToBits(text);
+
+            const audioBuffer = createAudioBufferFromBits(bits, config.markFreq, config.spaceFreq, config.baud);
+            setupAudioExport(audioBuffer);
+        }
+
+        function generateAudioFromFile() {
+            const fileInput = document.getElementById('fileInput');
+            if (!fileInput.files.length) return alert("Please select a file.");
+
+            const file = fileInput.files[0];
+            const reader = new FileReader();
+
+            reader.onload = function(e) {
+                const arrayBuffer = e.target.result;
+                const bytes = new Uint8Array(arrayBuffer);
+                
+                let bits = [];
+                for (let i = 0; i < bytes.length; i++) {
+                    bits.push(0); // Start bit
+                    for (let b = 0; b < 8; b++) {
+                        bits.push((bytes[i] >> b) & 1);
+                    }
+                    bits.push(1); // Stop bit
+                }
+
+                // Defaulting file encoding to FSK for stability
+                const config = SETTINGS.fsk;
+                const audioBuffer = createAudioBufferFromBits(bits, config.markFreq, config.spaceFreq, config.baud);
+                setupAudioExport(audioBuffer);
+            };
+
+            reader.readAsArrayBuffer(file);
+        }
+
+        // --- EXPORT TO WAV ---
+
+        function setupAudioExport(buffer) {
+            const wavBlob = bufferToWave(buffer, buffer.length);
+            const url = URL.createObjectURL(wavBlob);
+            
+            const player = document.getElementById('audioPlayer');
+            player.src = url;
+
+            const downloadLink = document.getElementById('downloadLink');
+            downloadLink.href = url;
+            downloadLink.style.display = "inline-block";
+        }
+
+        function bufferToWave(abuffer, len) {
+            let numOfChan = abuffer.numberOfChannels,
+                length = len * numOfChan * 2 + 44,
+                out = new DataView(new ArrayBuffer(length)),
+                channels = [], i, sample, offset = 0, pos = 0;
+
+            function setUint16(data) { out.setUint16(pos, data, true); pos += 2; }
+            function setUint32(data) { out.setUint32(pos, data, true); pos += 4; }
+
+            setUint32(0x46464952);                         // "RIFF"
+            setUint32(length - 8);                         // file length - 8
+            setUint32(0x45564157);                         // "WAVE"
+            setUint32(0x20746d66);                         // "fmt " chunk
+            setUint32(16);                                 // length = 16
+            setUint16(1);                                  // PCM (uncompressed)
+            setUint16(numOfChan);
+            setUint32(abuffer.sampleRate);
+            setUint32(abuffer.sampleRate * 2 * numOfChan); // avg. bytes/sec
+            setUint16(numOfChan * 2);                      // block-align
+            setUint16(16);                                 // 16-bit
+            setUint32(0x61746164);                         // "data" chunk
+            setUint32(length - pos - 4);                   // chunk length
+
+            for(i = 0; i < abuffer.numberOfChannels; i++) channels.push(abuffer.getChannelData(i));
+
+            while(offset < len) {
+                for(i = 0; i < numOfChan; i++) {
+                    sample = Math.max(-1, Math.min(1, channels[i][offset]));
+                    sample = (0.5 + sample < 0 ? sample * 32768 : sample * 32767)|0;
+                    out.setInt16(pos, sample, true);
+                    pos += 2;
+                }
+                offset++;
+            }
+            return new Blob([out], {type: "audio/wav"});
+        }
+
+        // --- DECODING LOGIC ---
+
+        async function decodeAudioFile() {
+            const fileInput = document.getElementById('audioFileInput');
+            const outputDiv = document.getElementById('decodedOutput');
+            
+            if (!fileInput.files.length) return alert("Select an audio file to decode.");
+
+            outputDiv.innerText = "Processing audio...";
+
+            const file = fileInput.files[0];
+            const arrayBuffer = await file.arrayBuffer();
+            const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+
+            const rawData = audioBuffer.getChannelData(0);
+            const mode = document.getElementById('mode').value;
+            const config = SETTINGS[mode];
+
+            const samplesPerBit = Math.floor(SAMPLE_RATE / config.baud);
+            let bits = [];
+
+            // Zero-crossing / Frequency detection simple windowing
+            for (let i = 0; i < rawData.length; i += samplesPerBit) {
+                let zeroCrossings = 0;
+                for (let j = i; j < i + samplesPerBit && j < rawData.length - 1; j++) {
+                    if ((rawData[j] >= 0 && rawData[j + 1] < 0) || (rawData[j] < 0 && rawData[j + 1] >= 0)) {
+                        zeroCrossings++;
+                    }
+                }
+                
+                // Estimate frequency from zero crossings
+                let estimatedFreq = (zeroCrossings * SAMPLE_RATE) / (2 * samplesPerBit);
+                
+                // Determine bit value based on proximity to mark/space
+                let distToMark = Math.abs(estimatedFreq - config.markFreq);
+                let distToSpace = Math.abs(estimatedFreq - config.spaceFreq);
+
+                bits.push(distToMark < distToSpace ? 1 : 0);
+            }
+
+            // Decode framing bits back into text
+            let decodedText = "";
+            let i = 0;
+            while (i < bits.length) {
+                // Look for start bit (0)
+                if (bits[i] === 0) {
+                    let byteVal = 0;
+                    for (let b = 0; b < 8; b++) {
+                        if (i + 1 + b < bits.length) {
+                            byteVal |= (bits[i + 1 + b] << b);
+                        }
+                    }
+                    if (byteVal >= 32 && byteVal <= 126) { // printable ASCII
+                        decodedText += String.fromCharCode(byteVal);
+                    }
+                    i += 10; // Skip frame: 1 start + 8 data + 1 stop
+                } else {
+                    i++;
+                }
+            }
+
+            outputDiv.innerText = decodedText || "Failed to decode readable text. Ensure mode/frequencies match the audio.";
+        }
+    </script>
+</body>
+</html>
