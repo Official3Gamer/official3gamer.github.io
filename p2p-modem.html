@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>P2P Audio FSK Chat</title>
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.min.js"></script>
+    <style>
+        body {
+            font-family: sans-serif;
+            margin: 20px;
+            background-color: #ffffff;
+            color: #000000;
+        }
+        .section {
+            border: 1px solid #777;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-top: 8px;
+            font-weight: bold;
+        }
+        input, select, button {
+            margin-top: 4px;
+            margin-bottom: 10px;
+        }
+        .chat-box {
+            border: 1px solid #333;
+            height: 200px;
+            overflow-y: scroll;
+            padding: 10px;
+            background: #f9f9f9;
+            margin-bottom: 10px;
+        }
+        .msg {
+            margin-bottom: 8px;
+        }
+        .msg-author {
+            font-weight: bold;
+            color: #0066cc;
+        }
+        .inline-inputs {
+            display: flex;
+            gap: 10px;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>P2P Data Chat (FSK Encoded Audio Stream)</h1>
+
+    <div class="section">
+        <h2>1. Connection Setup</h2>
+        <label for="username">Your Display Name:</label>
+        <input type="text" id="username" value="User1">
+
+        <p><strong>Your Peer ID:</strong> <span id="myPeerId">Connecting...</span></p>
+
+        <label for="remotePeerId">Connect to Peer ID:</label>
+        <input type="text" id="remotePeerId" placeholder="Enter remote Peer ID">
+        <button onclick="connectToPeer()">Connect Peer</button>
+        <p><strong>Status:</strong> <span id="status">Disconnected</span></p>
+    </div>
+
+    <div class="section">
+        <h2>2. FSK Settings</h2>
+        <div class="inline-inputs">
+            <div>
+                <label for="markFreq">Mark Freq (Hz):</label>
+                <input type="number" id="markFreq" value="1200">
+            </div>
+            <div>
+                <label for="spaceFreq">Space Freq (Hz):</label>
+                <input type="number" id="spaceFreq" value="2200">
+            </div>
+            <div>
+                <label for="baudRate">Baud Rate:</label>
+                <input type="number" id="baudRate" value="300">
+            </div>
+        </div>
+    </div>
+
+    <div class="section">
+        <h2>3. Chat Room</h2>
+        <div id="chatBox" class="chat-box"></div>
+
+        <label for="messageInput">Type Message:</label>
+        <input type="text" id="messageInput" placeholder="Hello world!" style="width: 70%;">
+        <button onclick="sendMessage()">Send via FSK Audio</button>
+    </div>
+
+    <script>
+        const SAMPLE_RATE = 44100;
+        let peer = null;
+        let activeConnection = null;
+        let audioCtx = null;
+
+        // Initialize Peer Connection
+        function initPeer() {
+            peer = new Peer();
+
+            peer.on('open', (id) => {
+                document.getElementById('myPeerId').innerText = id;
+            });
+
+            peer.on('connection', (conn) => {
+                setupConnection(conn);
+            });
+        }
+
+        function connectToPeer() {
+            const remoteId = document.getElementById('remotePeerId').value;
+            if (!remoteId) return alert("Enter a Peer ID to connect.");
+            
+            const conn = peer.connect(remoteId);
+            setupConnection(conn);
+        }
+
+        function setupConnection(conn) {
+            activeConnection = conn;
+
+            conn.on('open', () => {
+                document.getElementById('status').innerText = "Connected to " + conn.peer;
+            });
+
+            // Listen for incoming WebRTC data (Audio buffer containing FSK data)
+            conn.on('data', (data) => {
+                if (data.type === 'fsk_audio') {
+                    decodeFSKAudio(data.samples, data.sampleRate);
+                }
+            });
+
+            conn.on('close', () => {
+                document.getElementById('status').innerText = "Disconnected";
+            });
+        }
+
+        // --- ENCODING & TRANSMISSION ---
+
+        function sendMessage() {
+            if (!activeConnection) return alert("You are not connected to a peer.");
+            
+            const username = document.getElementById('username').value || "Anonymous";
+            const text = document.getElementById('messageInput').value;
+            if (!text) return;
+
+            // Form payload object: sender name + message
+            const payload = JSON.stringify({ sender: username, text: text });
+
+            // Convert string payload into 8-N-1 bits
+            const encoder = new TextEncoder();
+            const bytes = encoder.encode(payload);
+            const bits = bytesToBits(bytes);
+
+            // Generate raw audio samples
+            const markFreq = parseFloat(document.getElementById('markFreq').value);
+            const spaceFreq = parseFloat(document.getElementById('spaceFreq').value);
+            const baud = parseFloat(document.getElementById('baudRate').value);
+
+            const samples = generateFSKSamples(bits, markFreq, spaceFreq, baud);
+
+            // Send raw audio stream data array across P2P connection
+            activeConnection.send({
+                type: 'fsk_audio',
+                samples: Array.from(samples),
+                sampleRate: SAMPLE_RATE
+            });
+
+            // Print local chat copy
+            appendChatMessage(username + " (You)", text);
+            document.getElementById('messageInput').value = '';
+        }
+
+        function bytesToBits(bytes) {
+            let bits = [];
+            for (let i = 0; i < bytes.length; i++) {
+                bits.push(0); // Start Bit
+                for (let b = 0; b < 8; b++) {
+                    bits.push((bytes[i] >> b) & 1);
+                }
+                bits.push(1); // Stop Bit
+            }
+            return bits;
+        }
+
+        function generateFSKSamples(bits, markFreq, spaceFreq, baud) {
+            const samplesPerBit = Math.floor(SAMPLE_RATE / baud);
+            const totalSamples = bits.length * samplesPerBit;
+            const samples = new Float32Array(totalSamples);
+
+            let phase = 0;
+            let sampleIdx = 0;
+
+            for (let b = 0; b < bits.length; b++) {
+                const freq = (bits[b] === 1) ? markFreq : spaceFreq;
+                const phaseInc = (2 * Math.PI * freq) / SAMPLE_RATE;
+
+                for (let s = 0; s < samplesPerBit; s++) {
+                    samples[sampleIdx++] = Math.sin(phase);
+                    phase += phaseInc;
+                }
+            }
+            return samples;
+        }
+
+        // --- DECODING LOGIC ---
+
+        function decodeFSKAudio(samples, sampleRate) {
+            const markFreq = parseFloat(document.getElementById('markFreq').value);
+            const spaceFreq = parseFloat(document.getElementById('spaceFreq').value);
+            const baud = parseFloat(document.getElementById('baudRate').value);
+
+            const samplesPerBit = Math.floor(sampleRate / baud);
+            let bits = [];
+
+            // Simple Zero-Crossing Frequency Measurement
+            for (let i = 0; i < samples.length; i += samplesPerBit) {
+                let zeroCrossings = 0;
+                for (let j = i; j < i + samplesPerBit && j < samples.length - 1; j++) {
+                    if ((samples[j] >= 0 && samples[j + 1] < 0) || (samples[j] < 0 && samples[j + 1] >= 0)) {
+                        zeroCrossings++;
+                    }
+                }
+
+                let estimatedFreq = (zeroCrossings * sampleRate) / (2 * samplesPerBit);
+                let distToMark = Math.abs(estimatedFreq - markFreq);
+                let distToSpace = Math.abs(estimatedFreq - spaceFreq);
+
+                bits.push(distToMark < distToSpace ? 1 : 0);
+            }
+
+            // Extract Framed Bytes
+            let decodedBytes = [];
+            let idx = 0;
+            while (idx < bits.length) {
+                if (bits[idx] === 0) { // Start bit
+                    let byteVal = 0;
+                    for (let b = 0; b < 8; b++) {
+                        if (idx + 1 + b < bits.length) {
+                            byteVal |= (bits[idx + 1 + b] << b);
+                        }
+                    }
+                    decodedBytes.push(byteVal);
+                    idx += 10;
+                } else {
+                    idx++;
+                }
+            }
+
+            // Parse message payload
+            try {
+                const decoder = new TextDecoder("utf-8");
+                const jsonString = decoder.decode(new Uint8Array(decodedBytes));
+                const data = JSON.parse(jsonString);
+
+                appendChatMessage(data.sender, data.text);
+            } catch (e) {
+                console.error("Decoding error:", e);
+            }
+        }
+
+        function appendChatMessage(sender, message) {
+            const chatBox = document.getElementById('chatBox');
+            const msgDiv = document.createElement('div');
+            msgDiv.className = 'msg';
+            msgDiv.innerHTML = `<span class="msg-author">${escapeHtml(sender)}:</span> ${escapeHtml(message)}`;
+            chatBox.appendChild(msgDiv);
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+
+        function escapeHtml(str) {
+            return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        }
+
+        // Initialize PeerJS on load
+        window.onload = initPeer;
+    </script>
+</body>
+</html>
